@@ -11,21 +11,20 @@ use walkdir::WalkDir;
 pub mod time {
 	use super::*;
 
-	use anyhow::anyhow;
-	use git2::Time;
-
-	pub fn chrono_to_git2_time(date: &DateTime<FixedOffset>) -> Time {
+	pub fn chrono_to_git2_time(date: &DateTime<FixedOffset>) -> git2::Time {
 		// Seconds since epoch (UTC)
 		let seconds = date.timestamp();
 		// Offset in minutes
 		let offset_minutes = date.offset().local_minus_utc() / 60;
-		Time::new(seconds, offset_minutes)
+
+		git2::Time::new(seconds, offset_minutes)
 	}
 
-	pub fn git2_to_chrono_date(time: &Time) -> Result<DateTime<FixedOffset>> {
-		let offset = FixedOffset::east_opt(time.offset_minutes() * 60)
-			.ok_or_else(|| anyhow!("Invalid timezone offset"))?;
+	pub fn git2_to_chrono_date(time: &git2::Time) -> Result<DateTime<FixedOffset>> {
 		let seconds = time.seconds();
+		let offset =
+			FixedOffset::east_opt(time.offset_minutes() * 60).context("invalid timezone offset")?;
+
 		let date = DateTime::<FixedOffset>::from_naive_utc_and_offset(
 			DateTime::from_timestamp(seconds, 0)
 				.map(|d| d.naive_utc())
@@ -56,7 +55,10 @@ pub struct RepoManifest {
 	pub commits: Vec<CommitMeta>
 }
 
-pub fn collect_all_commits<'r>(repo: &'r Repository, branch: &'_ str) -> Result<Vec<Commit<'r>>> {
+pub fn collect_all_commits<'repo>(
+	repo: &'repo Repository,
+	branch: &'_ str
+) -> Result<Vec<Commit<'repo>>> {
 	let mut revwalk = repo.revwalk()?;
 	revwalk.push_ref(&format!("refs/heads/{}", branch))?;
 	revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::REVERSE)?;
@@ -170,7 +172,7 @@ pub fn replay_commit(
 		.parents
 		.iter()
 		.filter_map(|old_sha| old_to_new.get(old_sha))
-		.filter_map(|oid| repo.find_commit(*oid).ok())
+		.filter_map(|&oid| repo.find_commit(oid).ok())
 		.collect();
 
 	let parent_refs: Vec<&Commit> = parent_commits.iter().collect();

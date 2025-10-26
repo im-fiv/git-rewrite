@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use git_rewrite::{RepoManifest, replay_commit};
 use git2::Repository;
 
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
 	// Create branch ref
 	let head_commit = sha_map
 		.get(&manifest.commits.last().unwrap().sha)
-		.expect("Last commit missing");
+		.context("last commit missing")?;
 	repo.branch(&manifest.branch, &repo.find_commit(*head_commit)?, true)?;
 
 	println!("Reconstructed repository at {:?}", repo_path);
