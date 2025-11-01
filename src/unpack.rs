@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,7 @@ fn main() -> Result<()> {
 	let mut manifest = RepoManifest {
 		name: repo_name,
 		branch,
+		signing_keys: HashMap::new(),
 		commits: Vec::new()
 	};
 

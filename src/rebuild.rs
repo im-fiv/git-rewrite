@@ -20,7 +20,7 @@ fn main() -> Result<()> {
 
 	// Replay commits in the exported order (topo order)
 	for meta in &manifest.commits {
-		let new_oid = replay_commit(&repo, meta, &sha_map)?;
+		let new_oid = replay_commit(&repo, meta, &sha_map, &manifest.signing_keys)?;
 		sha_map.insert(meta.sha.clone(), new_oid);
 		println!("Replayed commit {} -> {}", &meta.sha[..8], new_oid);
 	}

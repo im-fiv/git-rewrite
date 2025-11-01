@@ -37,6 +37,14 @@ pub mod time {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RepoManifest {
+	pub name: String,
+	pub branch: String,
+	pub signing_keys: HashMap<String, String>,
+	pub commits: Vec<CommitMeta>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CommitMeta {
 	pub sha: String,
 	pub parents: Vec<String>,
@@ -46,13 +54,6 @@ pub struct CommitMeta {
 	pub message: String,
 	pub tree_sha: String,
 	pub folder: PathBuf
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RepoManifest {
-	pub name: String,
-	pub branch: String,
-	pub commits: Vec<CommitMeta>
 }
 
 pub fn collect_all_commits<'repo>(
@@ -128,10 +129,12 @@ pub fn copy_commit_files(src_dir: &Path, dest_dir: &Path) -> Result<()> {
 	Ok(())
 }
 
+// TODO: Fix signing
 pub fn replay_commit(
 	repo: &Repository,
 	meta: &CommitMeta,
-	old_to_new: &HashMap<String, git2::Oid>
+	old_to_new: &HashMap<String, git2::Oid>,
+	signing_keys: &HashMap<String, String>
 ) -> Result<Oid> {
 	let workdir = repo.workdir().context("repo has no working directory")?;
 
@@ -168,16 +171,32 @@ pub fn replay_commit(
 	let committer = author.clone();
 
 	// Resolve new parent commits
-	let parent_commits: Vec<Commit> = meta
+	let parent_commits = meta
 		.parents
 		.iter()
 		.filter_map(|old_sha| old_to_new.get(old_sha))
 		.filter_map(|&oid| repo.find_commit(oid).ok())
-		.collect();
-
+		.collect::<Vec<_>>();
 	let parent_refs: Vec<&Commit> = parent_commits.iter().collect();
 
-	// Create commit
+	// Try signing the commit
+	if let Some(key_material) = signing_keys.get(&meta.author_email) {
+		// Build the unsigned commit buffer
+		let buffer =
+			repo.commit_create_buffer(&author, &committer, &meta.message, &tree, &parent_refs)?;
+
+		// Produce signature using key material
+		let signature = sign_commit_buffer(&buffer, key_material)?;
+
+		// Write signed commit
+		let commit_content = buffer
+			.as_str()
+			.context("unable to represent commit buffer as `str`")?;
+		let oid = repo.commit_signed(commit_content, &signature, Some("gpgsig"))?;
+		return Ok(oid);
+	}
+
+	// Unsigned fallback
 	let oid = repo.commit(
 		Some("HEAD"),
 		&author,
@@ -188,6 +207,16 @@ pub fn replay_commit(
 	)?;
 
 	Ok(oid)
+}
+
+pub fn sign_commit_buffer(buffer: &[u8], key_id: &str) -> Result<String> {
+	let mut ctx = gpgme::Context::from_protocol(gpgme::Protocol::OpenPgp)?;
+	let key = ctx.get_key(key_id)?;
+	ctx.add_signer(&key)?;
+
+	let mut output = Vec::new();
+	ctx.sign_detached(buffer, &mut output)?;
+	Ok(String::from_utf8(output)?)
 }
 
 impl CommitMeta {
